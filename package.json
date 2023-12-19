@@ -1,0 +1,20 @@
+{
+  "name": "anki-arabi-telebot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node app.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/translate": "^8.0.2",
+    "axios": "^1.6.2",
+    "google-translate-api": "^2.3.0",
+    "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^0.64.0",
+    "reverso-api": "^2.22.6"
+  }
+}
