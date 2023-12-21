@@ -1,6 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
-const translate = require('google-translate-api');
 const axios = require('axios');
+const Reverso = require('reverso-api')
+const reverso = new Reverso()
 
 const TELEGRAM_TOKEN = '6368978582:AAFTRwvDxCMeZ4FRiqbx7ic80N50a7tkRGc';
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
@@ -46,16 +47,60 @@ async function handleTranslateSend(chatId, word) {
     let sentence = userData[chatId].sentence;
 
     try {
-        let translatedSentence = await translateSentence(sentence, 'ar', 'en');
-        const { coveredSentence, markedWord } = coverWord(sentence, word);
-        const { coveredSentence: coveredTranslation, markedWord: markedTranslation } = coverWord(translatedSentence, word);
+        const coveredSentence = coverWord(sentence, word);
+        const markedSentence = await markWord(sentence, word);
+        const translatedSentence = await translate(sentence, 'ar', 'en');
+        const translatedWord = await translate(word, 'ar', 'en');
+        let markedTranslatedSentence = translatedSentence;
+        let synonyms = [translatedWord];
+        await reverso.getSynonyms(translatedWord, 'english', (err, response) => {
+            if (err) throw new Error(err.message);
+            else {
+                for (const item of response.synonyms){
+                    synonyms.push(item.synonym);
+                }
+            }
+        })
+        let isFindingWord = true;
+        while (isFindingWord){
+            currWord = synonyms.pop();
+            markedTranslatedSentence = await markWord(translatedSentence, currWord);
+            if (translatedSentence != markedTranslatedSentence || synonyms.length == 0){
+                isFindingWord = false
+            }
+        }
+        let conjugation = [];
+        resp = await reverso.getConjugation(word, 'arabic');
+        for (const form of resp.verbForms){
+            if (form.conjugation == 'Active Past')
+                conjugation[0] = { type: `Active Past (ماضي)`, verb: form.verbs[3] };
+            if (form.conjugation == 'Active Present')
+                conjugation[1] = { type: `Active Present (مضارع)`, verb: form.verbs[3] };
+            if (form.conjugation == 'Imperative')
+                conjugation[2] = { type: `Imperative (أمر)`, verb: form.verbs[0] };
+            if (form.conjugation == 'Verbal noun')
+                conjugation[3] = { type: `Verbal noun (مصدر)`, verb: form.verbs[0] };
+            if (form.conjugation == 'Participles Active')
+                conjugation[4] = { type: `Participles Active (فاعل)`, verb: form.verbs[0] };
+            if (form.conjugation == 'Participles Passive')
+                conjugation[5] = { type: `Participles Passive (مفعول)`, verb: form.verbs[0] };
+        }
+        // Constructing the conjugation string
+        let conjugationString = conjugation.reduce((acc, item) => {
+            return acc + `${item.verb} | ${item.type}\n`;
+        }, "").trim();
 
-        let front = `${coveredSentence}<br><br>${coveredTranslation}`;
-        let back = `${markedWord}<br><br>${markedTranslation}`;
+        let front = `${coveredSentence}<br><br>${markedTranslatedSentence}`;
+        let back = `${markedSentence}<br><br>${conjugationString.replace(/\n/g, "<br>")}`;
 
         userData[chatId] = { ...userData[chatId], front, back, word };
 
-        bot.sendMessage(chatId, `Here's how the card will look:\n\nFront:\n${coveredSentence}\n\nBack:\n${markedWord}\n\nDo you want to add this to Anki? (yes/no)`, { parse_mode: 'HTML' });
+        let message = `Here's how the card will look:\n\n` +
+                      `<strong>Front:</strong>\n${coveredSentence}\n${markedTranslatedSentence}\n\n` +
+                      `<strong>Back:</strong>\n${markedSentence}\n${conjugationString}\n\n` +
+                      `Do you want to add this to Anki? (yes/no)`;
+
+        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
     } catch (error) {
         console.error(error);
         bot.sendMessage(chatId, "There was an error processing your request.");
@@ -72,16 +117,7 @@ function handleConfirmAddition(chatId, userReply) {
     userStates[chatId] = null;
 }
 
-// async function translateSentence(text, srcLang, destLang) {
-//     try {
-//         let res = await translate(text, { from: srcLang, to: destLang });
-//         return res.text;
-//     } catch (error) {
-//         console.error(error);
-//         return "";
-//     }
-// }
-async function translateSentence(text, fromLanguage, toLanguage) {
+async function translate(text, fromLanguage, toLanguage) {
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${fromLanguage}|${toLanguage}`;
 
     try {
@@ -95,10 +131,12 @@ async function translateSentence(text, fromLanguage, toLanguage) {
 
 function coverWord(sentence, word, placeholder = "_____") {
     const coveredSentence = sentence.replace(word, `<b>${placeholder}</b>`);
-    const markedWord = sentence.replace(word, `<b>${word}</b>`);
-    return { coveredSentence, markedWord };
+    return coveredSentence;
 }
-
+function markWord(sentence, word) {
+    const markedSentence = sentence.replace(word, `<b>${word}</b>`);
+    return markedSentence;
+}
 
 async function addToAnki(chatId, front, back, deckName = "anki bot") {
     const data = {
@@ -131,4 +169,4 @@ async function addToAnki(chatId, front, back, deckName = "anki bot") {
 
 
 bot.on('polling_error', (error) => console.log(error));
-console.log("hello");
+console.log("bot start");
